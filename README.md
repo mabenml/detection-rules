@@ -1,7 +1,24 @@
-# detection-rules
-Sanitized Splunk correlation searches mapped to MITRE ATT&CK, with tuning notes and data source documentation.
+# Detection Rules
 
-Each rule ships as a YAML envelope with inline SPL, a human-readable `README.md` covering data source requirements and response steps, and explicit tuning/false-positive guidance.
+A portfolio of production-tested Splunk correlation searches, sanitized for public sharing.
+Each detection includes MITRE ATT&CK mapping, data source requirements, and operational
+tuning notes drawn from real-world deployment experience.
+
+> **Note:** Index names, lookup references, field aliases, and environment-specific thresholds
+> have been generalized. Detections should be adapted to your data model and tested before
+> production deployment.
+
+## Structure
+
+Rules are organized by MITRE ATT&CK tactic. Each detection lives in its own directory
+containing a machine-readable `rule.yml` and a human-readable `README.md`.
+
+## Data Source Assumptions
+
+Unless otherwise noted, detections assume:
+- **Endpoint telemetry:** Sysmon v13+ with a standard configuration
+- **Field naming:** Splunk CIM-compliant field names
+- **Log sources:** Normalized to a common `endpoint` index
 
 ## Detection index
 
