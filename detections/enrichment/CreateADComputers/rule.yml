@@ -1,0 +1,91 @@
+id: f7e6d5c4-b3a2-9180-fedc-ba9876543210
+title: AD Computer Object Asset Enrichment
+status: production
+type: enrichment
+description: >
+  Two-phase Splunk scheduled search that builds the Splunk ES Asset & Identity
+  Framework lookup (HostMacIPWithAssetID) from Active Directory computer objects.
+  Phase 1 extracts computer accounts via ldapsearch, infers OS and business unit
+  from OU path, joins MAC/IP from HostMacIP.csv, and writes AD_Computers.csv.
+  Phase 2 appends the raw HostMacIP.csv (covering unmanaged hosts), merges the
+  two schemas, applies cardinality filtering, resolves PCI domain classification,
+  and writes the final asset lookup consumed by ES correlation searches.
+
+author: Michael Maben
+created: 2025-01-15
+modified: 2025-01-15
+
+platform:
+  siem: splunk
+  app_dependencies:
+    - Splunk Supporting Add-on for Active Directory (SA-LDAPSearch)
+    - Splunk Enterprise Security
+  data_sources:
+    - ldapsearch via SA-LDAPSearch (computer objects, SAMAccountType=805306369)
+    - HostMacIP.csv (KV Store / CSV lookup — Hostname, MACAddress, IPAddress, FQDN)
+  index: "N/A — ldapsearch and inputlookup; no event index required"
+
+outputs:
+  - name: AD_Computers.csv
+    consumers: Asset inventory, identity correlation
+  - name: HostMacIPWithAssetID
+    consumers: ES Asset & Identity Framework, downstream correlation searches
+
+detection:
+  spl: |
+    | ldapsearch domain=[REDACTED DOMAIN] search="(SAMAccountType=805306369" attrs="name,operatingSystem,operatingSystemVersion,description,DNSHostName"
+    | rex field=dn "OU=(?<OUs>.*?)\," max_match=0
+    | fillnull value-NULL operatingSystem
+    | eval operatingSystem=if(operatingSystem="NULL",mvfilter(in(OUs,[REDACTED LIST OF OPERATING SYSTEMS])),operatingSystem)
+    | eval bunit=mvfilter(in(OUs,[REDACTED LIST OF BUSINESS UNITS]))
+    | fields - OUs
+    | fillnull value=NULL operatingSystem,bunit,category
+    | eval priority=if(category=="Servers","High","Low")
+    | eval is_expected=null()
+    | eval should_timesync=null()
+    | eval should_update="true"
+    | eval requires_av="true"
+    | lookup HostMacIP.csv Hostname AS name OUTPUTNEW MACAddress AS mac, IPAddress as ip
+    | eval ip=mvjoin(ip,"|")
+    | table ip mac name DNSHostName priority bunit category is_expected should_timesync should_update requires_av operatingSystem operatingSystemVersion dn description
+    | rename name as "nt_host", DNSHostName as "dns"
+    | outputlookup AD_Computers.csv
+    | inputlookup append=t HostMacIP.csv
+    | eval nt_host=if(isnotnull(nt_host),nt_host,Hostname)
+    | eval dns=if(isnull(dns),FQDN,dns)
+    | rename IPAddress as ip, MACAddress as mac
+    | stats values(*) as * by nt_host
+    | where isnull(ip) OR (mvcount(ip) < 20)
+    | where isnull(mac) OR (mvcount(mac) < 20)
+    | eval ip=mvjoin(ip,"|")
+    | eval mac=mvjoin(mac,"|")
+    | fillnull value="false" is_expected, should_timesync, should_update, requires_av
+    | eval "category"=mvappend('category', if(('category' == "cardholder") and ('category' != "pci"), "pci", null())), "pci_domain"=mvdedup(mvappend('pci_domain', if(isnotnull(mvfind('pci_domain', "(pci|wireless|dmz)")) or ('category' == "pci"), "trust", null()), if('category'=="cardholder", split("trust,cardholder",","), null()))), "pci_domain"=coalesce('pci_domain', "untrust"), asset_tag=mvappend(if(should_timesync=="true", "should_timesync", null()), if(should_update=="true", "should_update", null()), if(is_expected=="true", "expected", null()), category, bunit)
+    | fields ip,mac,nt_host,dns,owner,priority,lat,long,city,country,bunit,category,pci_domain,is_expected,should_timesync,should_update,requires_av
+    | outputlookup HostMacIPWithAssetID
+
+tuning:
+  false_positives:
+    - Hosts with > 20 IPs or MACs (DHCP infrastructure, load balancers) are silently dropped by cardinality filters — verify these are genuinely dirty data before adjusting thresholds
+    - category is not populated by this search directly; priority will always resolve to "Low" unless category is pre-seeded via a separate lookup join upstream
+    - Machines present in HostMacIP.csv but absent from AD (unmanaged hosts, network devices) will have null compliance fields defaulted to "false" in Phase 2
+  known_fp_rate: low
+  suppression_suggestions:
+    - Raise cardinality threshold (mvcount < 20) for environments with legitimate multi-homed hosts
+    - Pre-populate category in a separate lookup join before this search runs if server/workstation classification is required
+
+performance:
+  typical_runtime: varies — depends on AD size and LDAP response time; expect 30s–5min in mid-size environments
+  search_mode: scheduled
+  recommended_schedule: "0 4 * * *"    # Daily at 04:00 — off-hours to avoid LDAP load during business hours
+
+references:
+  - https://docs.splunk.com/Documentation/ES/latest/Admin/Addassetandidentitydata
+  - https://lantern.splunk.com/Splunk_Platform/Product_Tips/Enterprise_Security/Configuring_assets_and_identities_in_Splunk_Enterprise_Security
+tags:
+  - asset-management
+  - identity
+  - active-directory
+  - splunk-es
+  - enrichment
+  - pci

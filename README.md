@@ -9,6 +9,12 @@ Each rule ships as a YAML envelope with inline SPL, a human-readable `README.md`
 |---|---|---|---|---|
 | [T1566.001](detections/initial_access/T1566.001_spearphishing_attachment/) | Suspicious Email Attachment Execution via Outlook | Initial Access | High | Production |
 
+## Enrichment searches
+
+| Name | Title | Status |
+|---|---|---|
+| [CreateADComputers](detections/enrichment/CreateADComputers/) | AD Computer Object Asset Enrichment | Production |
+
 ## Structure
 
 ```
