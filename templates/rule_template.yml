@@ -1,0 +1,48 @@
+id: 00000000-0000-0000-0000-000000000000   # Replace with a generated UUID
+title: ""
+status: draft                               # draft | test | production
+description: >
+  One to three sentences. What behavior does this detect, and why is it suspicious?
+
+author: Michael Maben
+created: YYYY-MM-DD
+modified: YYYY-MM-DD
+
+mitre:
+  tactics:
+    - ""                                    # e.g. initial_access, execution, persistence
+  techniques:
+    - ""                                    # e.g. T1566.001
+  subtechniques: []
+
+platform:
+  siem: splunk
+  data_sources:
+    - ""                                    # e.g. Sysmon (Event ID 1), Windows Security Event Log
+  index: ""                                 # e.g. endpoint, network, cloud
+
+detection:
+  spl: |
+    index=CHANGEME
+    | where ...
+    | stats count min(_time) as firstSeen max(_time) as lastSeen by host, user
+    | where count > 0
+
+tuning:
+  false_positives:
+    - ""
+  known_fp_rate: low                        # low | medium | high
+  suppression_suggestions:
+    - ""
+
+performance:
+  typical_runtime: ""                       # e.g. <5s, 10-30s
+  search_mode: scheduled                    # realtime | scheduled
+  recommended_schedule: ""                  # cron expression, e.g. "*/5 * * * *"
+
+references:
+  - ""
+severity: medium                            # informational | low | medium | high | critical
+confidence: medium                          # low | medium | high
+tags:
+  - ""

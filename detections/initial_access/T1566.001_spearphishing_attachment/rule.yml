@@ -1,0 +1,73 @@
+id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+title: Suspicious Email Attachment Execution via Outlook
+status: production
+description: >
+  Detects execution of common malicious attachment types spawned directly
+  from Outlook, which may indicate a spearphishing attempt (T1566.001).
+  Covers script interpreters, living-off-the-land binaries, and document
+  readers that have no legitimate reason to be launched by a mail client.
+
+author: Michael Maben
+created: 2025-01-15
+modified: 2025-01-15
+
+mitre:
+  tactics:
+    - initial_access
+  techniques:
+    - T1566.001
+  subtechniques: []
+
+platform:
+  siem: splunk
+  data_sources:
+    - Sysmon (Event ID 1 — Process Create)
+  index: endpoint
+
+detection:
+  spl: |
+    index=endpoint source="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=1
+    | where lower(parent_process_name) IN ("outlook.exe", "thunderbird.exe")
+    | where match(lower(process_name), "(cmd\.exe|powershell\.exe|pwsh\.exe|wscript\.exe|cscript\.exe|mshta\.exe|rundll32\.exe|regsvr32\.exe|msiexec\.exe|certutil\.exe)")
+    | eval firstSeen=strftime(_time, "%Y-%m-%dT%H:%M:%SZ")
+    | stats count
+        min(_time) as firstSeen
+        max(_time) as lastSeen
+        values(process_name) as spawned_processes
+        values(process_path) as spawned_paths
+        values(CommandLine) as commandlines
+        by host, user, parent_process_name
+    | where count > 0
+    | eval severity=case(
+        match(mvjoin(spawned_processes,","), "powershell|pwsh"), "high",
+        match(mvjoin(spawned_processes,","), "mshta|certutil"), "high",
+        true(), "medium"
+      )
+    | table firstSeen, lastSeen, host, user, parent_process_name, spawned_processes, commandlines, severity
+
+tuning:
+  false_positives:
+    - Legitimate macros signed by your organization's certificate authority
+    - IT tooling that intentionally invokes scripts via Outlook (e.g., helpdesk automation)
+    - Defenders running manual triage from within a mail client
+  known_fp_rate: low
+  suppression_suggestions:
+    - "| where user!=\"svc_monitoring\""
+    - "| where NOT match(CommandLine, \"known_good_hash_or_path\")"
+
+performance:
+  typical_runtime: <5s
+  search_mode: scheduled
+  recommended_schedule: "*/5 * * * *"
+
+references:
+  - https://attack.mitre.org/techniques/T1566/001/
+  - https://redcanary.com/threat-detection-report/techniques/phishing/
+severity: high
+confidence: medium
+tags:
+  - phishing
+  - initial-access
+  - outlook
+  - lolbas
+  - process-injection
